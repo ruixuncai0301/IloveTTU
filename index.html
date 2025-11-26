@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>九樓洗衣房</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script type="importmap">
+    {
+      "imports": {
+        "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.js",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+      }
+    }
+    </script>
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; -webkit-tap-highlight-color: transparent; }
+        .machine-card { transition: all 0.2s; }
+        .machine-card:active { transform: scale(0.98); }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        [v-cloak] { display: none; }
+        .msg-bubble { position: relative; }
+        .msg-bubble::before { content: ''; position: absolute; left: -8px; top: 12px; border: 8px solid transparent; border-right-color: white; }
+
+        @keyframes marquee {
+            0% { transform: translateX(100%); }
+            100% { transform: translateX(-100%); }
+        }
+        .animate-marquee {
+            display: inline-block;
+            white-space: nowrap;
+            animation: marquee 15s linear infinite;
+            min-width: 100%;
+        }
+        .marquee-container:active .animate-marquee {
+            animation-play-state: paused;
+        }
+        @keyframes shrink { from { width: 100%; } to { width: 0%; } }
+        .countdown-bar { animation: shrink 60s linear forwards; }
+        .item-enter { animation: slideDown 0.3s ease-out; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <div id="app" class="min-h-screen flex flex-col max-w-md mx-auto bg-gray-50 relative" v-cloak>
+        
+        <!-- 載入中 -->
+        <div v-if="loading" class="fixed inset-0 bg-gray-100 z-50 flex flex-col items-center justify-center">
+            <div class="text-5xl animate-bounce mb-4">🧺</div>
+            <p class="text-gray-500 font-bold">連線中...</p>
+        </div>
+
+        <!-- 主要內容區 -->
+        <main class="flex-1 overflow-y-auto pb-24 p-4 scroll-smooth">
+            
+            <!-- 頂部 Header -->
+            <header class="bg-white rounded-2xl shadow-sm p-4 mb-4 border border-gray-100 sticky top-0 z-20">
+                <div class="flex justify-between items-center mb-2">
+                    <div>
+                        <h1 class="text-xl font-extrabold text-gray-800 tracking-tight">九樓洗衣房</h1>
+                        <div class="text-xs mt-1 flex items-center gap-2 font-medium text-green-500">
+                            ● {{ currentTab === 'status' ? '即時監控中' : '住戶留言板' }}
+                        </div>
+                    </div>
+                    <button @click="showIdModal = true" class="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 whitespace-nowrap">
+                        {{ user.name || '設定身分' }}
+                    </button>
+                </div>
+                <div class="bg-gray-100 rounded-lg p-2 text-center">
+                    <div class="text-xs text-gray-400 uppercase tracking-widest">Taiwan Current Time</div>
+                    <div class="text-3xl font-mono font-black text-gray-700 tracking-wider">{{ currentTime }}</div>
+                </div>
+            </header>
+
+            <!-- ================= PAGE 1: 機器與排隊 ================= -->
+            <div v-if="currentTab === 'status'">
+                
+                <!-- 跑馬燈公告 -->
+                <section class="mb-4">
+                    <div class="relative bg-gray-800 h-10 rounded-lg flex items-center overflow-hidden shadow-md marquee-container group">
+                        <div class="absolute left-0 bg-gray-800 z-10 px-2 h-full flex items-center text-yellow-400">
+                            <i class="fas fa-bullhorn"></i>
+                        </div>
+                        <div class="flex-1 overflow-hidden relative h-full flex items-center mx-8">
+                            <div class="animate-marquee text-sm font-bold text-white">
+                                {{ announcement.text || '歡迎使用九樓洗衣房，請愛惜公物。' }} 
+                                <span class="text-gray-400 text-xs ml-4 font-normal">({{ formatTime(announcement.updatedAt) }} 更新)</span>
+                            </div>
+                        </div>
+                        <button @click="openEditAnnouncement" class="absolute right-0 bg-gray-700 hover:bg-gray-600 text-white h-full px-3 z-10 transition-colors border-l border-gray-600">
+                            <i class="fas fa-pen text-xs"></i>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 待取衣物籃 -->
+                <section class="mb-6">
+                    <div class="bg-white border-2 border-red-100 rounded-xl p-4 shadow-sm ring-2 ring-red-50 relative overflow-hidden">
+                        <h3 class="font-bold text-red-800 text-sm mb-3 flex items-center justify-between z-10 relative">
+                            <span><i class="fas fa-tshirt mr-2"></i>待取衣物籃 (請盡快取回)</span>
+                            <span v-if="uncollectedItems.length > 0" class="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full animate-pulse">{{ uncollectedItems.length }}</span>
+                        </h3>
+                        
+                        <i class="fas fa-shopping-basket absolute -bottom-4 -right-4 text-9xl text-red-50 opacity-30 pointer-events-none"></i>
+
+                        <div v-if="uncollectedItems.length === 0" class="text-center text-gray-400 text-xs py-6 border-2 border-dashed border-red-100 rounded-lg bg-red-50/30">
+                            <i class="fas fa-check-circle mb-1 text-lg text-red-200"></i><br>
+                            目前沒有待取的衣物
+                        </div>
+
+                        <div v-else class="space-y-2 z-10 relative">
+                            <div v-for="item in uncollectedItems" :key="item.id" class="flex justify-between items-center p-3 bg-white rounded-lg border border-red-100 shadow-sm item-enter">
+                                <div>
+                                    <div class="font-bold text-gray-800 text-sm">{{ item.ownerName }} 的衣物</div>
+                                    <div class="text-xs text-gray-500">
+                                        <i class="fas fa-clock mr-1"></i>{{ formatTime(item.finishedAt) }} 來自 {{ item.machineLabel }}
+                                    </div>
+                                </div>
+                                <button v-if="item.ownerId === user.id" @click="pickupClothes(item.id)" class="bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow active:bg-red-600 transition whitespace-nowrap flex items-center">
+                                    <i class="fas fa-hand-holding mr-1"></i>取回
+                                </button>
+                                <button v-else @click="helpPickup(item)" class="bg-gray-100 text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm active:bg-gray-200 transition whitespace-nowrap flex items-center">
+                                    <i class="fas fa-check mr-1"></i>取回
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 機器列表 -->
+                <section class="mb-6">
+                    <div class="mb-2 flex items-center text-gray-500 text-xs font-bold uppercase tracking-wider ml-1">
+                        <i class="fas fa-soap mr-1"></i> 洗衣機 (Washer)
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-6">
+                        <div v-for="m in washers" :key="m.id" 
+                             class="machine-card p-4 rounded-2xl border-2 bg-white relative shadow-sm min-h-[160px] flex flex-col justify-between overflow-hidden"
+                             :class="getStatusColor(m)"
+                             @click="handleClick(m)">
+                            
+                            <div class="flex justify-between items-start relative z-10">
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-gray-700 text-lg">{{ m.label }}</span>
+                                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded w-max">{{ m.id }}</span>
+                                </div>
+                                <button @click.stop="openFixModal(m)" class="text-gray-300 hover:text-gray-600 p-2 -mr-2 -mt-2 transition-colors">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </div>
+
+                            <div class="mt-2">
+                                <div v-if="m.status === 'reserved'" class="text-purple-600 font-bold animate-pulse">
+                                    <div class="text-xs mb-1">輪到下一位：</div><div class="text-lg">{{ m.reservedForName }}</div>
+                                    <div class="text-[10px] bg-purple-100 px-1 rounded mt-1 inline-block">限時 60 秒確認</div>
+                                </div>
+                                <div v-else-if="m.status === 'running'">
+                                    <div class="text-xs text-gray-500 mb-1">{{ m.ownerName }} 使用中</div>
+                                    <div class="text-xl font-mono font-bold text-gray-800">{{ getRemaining(m.endTime) }}</div>
+                                    <div class="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded mt-1 inline-block">預計 {{ getFinishTime(m.endTime) }} 完成</div>
+                                </div>
+                                <div v-else-if="m.status === 'finished'" class="text-yellow-600 font-bold flex flex-col">
+                                    <div class="flex items-center mb-1"><i class="fas fa-exclamation-circle mr-1"></i> 洗程結束</div>
+                                    <div class="text-xs text-gray-500 font-normal mb-2">上次: {{ m.ownerName }}</div>
+                                    <div class="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full text-center animate-pulse">點擊取出衣物</div>
+                                </div>
+                                <div v-else-if="m.status === 'maintenance'" class="text-gray-500 font-bold flex flex-col items-center justify-center h-full py-2">
+                                    <i class="fas fa-tools text-2xl mb-1"></i><span class="text-sm">暫停使用</span>
+                                </div>
+                                <div v-else class="text-green-600 font-bold flex items-center"><div class="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>可使用</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-2 flex items-center text-gray-500 text-xs font-bold uppercase tracking-wider ml-1">
+                        <i class="fas fa-wind mr-1"></i> 烘衣機 (Dryer)
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div v-for="m in dryers" :key="m.id" 
+                             class="machine-card p-4 rounded-2xl border-2 bg-white relative shadow-sm min-h-[160px] flex flex-col justify-between overflow-hidden"
+                             :class="getStatusColor(m)"
+                             @click="handleClick(m)">
+                            
+                            <div class="flex justify-between items-start relative z-10">
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-gray-700 text-lg">{{ m.label }}</span>
+                                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded w-max">{{ m.id }}</span>
+                                </div>
+                                <button @click.stop="openFixModal(m)" class="text-gray-300 hover:text-gray-600 p-2 -mr-2 -mt-2 transition-colors">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </div>
+                            <div class="mt-2">
+                                <div v-if="m.status === 'reserved'" class="text-purple-600 font-bold animate-pulse">
+                                    <div class="text-xs mb-1">輪到下一位：</div><div class="text-lg">{{ m.reservedForName }}</div>
+                                    <div class="text-[10px] bg-purple-100 px-1 rounded mt-1 inline-block">限時 60 秒確認</div>
+                                </div>
+                                <div v-else-if="m.status === 'running'">
+                                    <div class="text-xs text-gray-500 mb-1">{{ m.ownerName }} 使用中</div>
+                                    <div class="text-xl font-mono font-bold text-gray-800">{{ getRemaining(m.endTime) }}</div>
+                                    <div class="text-[10px] text-orange-600 font-bold bg-orange-50 px-1 rounded mt-1 inline-block">預計 {{ getFinishTime(m.endTime) }} 完成</div>
+                                </div>
+                                <div v-else-if="m.status === 'finished'" class="text-yellow-600 font-bold flex flex-col">
+                                    <div class="flex items-center mb-1"><i class="fas fa-exclamation-circle mr-1"></i> 烘衣結束</div>
+                                    <div class="text-xs text-gray-500 font-normal mb-2">上次: {{ m.ownerName }}</div>
+                                    <div class="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full text-center animate-pulse">點擊取出衣物</div>
+                                </div>
+                                <div v-else-if="m.status === 'maintenance'" class="text-gray-500 font-bold flex flex-col items-center justify-center h-full py-2">
+                                    <i class="fas fa-tools text-2xl mb-1"></i><span class="text-sm">暫停使用</span>
+                                </div>
+                                <div v-else class="text-green-600 font-bold flex items-center"><div class="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>可使用</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 排隊區 -->
+                <div class="grid grid-cols-1 gap-4 mb-6">
+                    <div class="bg-white rounded-xl shadow-sm border p-4">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="font-bold text-gray-700 flex items-center"><i class="fas fa-list-ol mr-2 text-blue-300"></i>洗衣排隊</span>
+                            <button @click="handleQueueClick('washer')" class="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow active:bg-blue-700">+ 排洗衣</button>
+                        </div>
+                        <div v-if="queues.washer.users.length === 0" class="text-center text-gray-300 text-sm py-2 bg-gray-50 rounded-lg">目前無需排隊</div>
+                        <div v-for="(u, idx) in queues.washer.users" :key="u.id" class="flex justify-between items-center py-3 border-b last:border-0 text-sm">
+                            <div class="flex flex-col">
+                                <span class="font-medium"><span class="font-mono font-bold text-blue-500 mr-3 text-lg">{{idx+1}}</span>{{u.name}}</span>
+                                <span class="text-[10px] text-gray-400 ml-7 mt-0.5"><i class="fas fa-clock mr-1"></i>預計 {{ getQueueEstTime('washer', idx) }} 使用</span>
+                            </div>
+                            <!-- ID 驗證: 只要名字一樣，就能取消 -->
+                            <button v-if="u.id === user.id" @click="leaveQueue('washer')" class="text-red-500 bg-red-50 px-3 py-1 rounded-full text-xs font-bold">取消</button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border p-4">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="font-bold text-gray-700 flex items-center"><i class="fas fa-list-ol mr-2 text-orange-300"></i>烘衣排隊</span>
+                            <button @click="handleQueueClick('dryer')" class="bg-orange-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow active:bg-orange-600">+ 排烘衣</button>
+                        </div>
+                        <div v-if="queues.dryer.users.length === 0" class="text-center text-gray-300 text-sm py-2 bg-gray-50 rounded-lg">目前無需排隊</div>
+                        <div v-for="(u, idx) in queues.dryer.users" :key="u.id" class="flex justify-between items-center py-3 border-b last:border-0 text-sm">
+                            <div class="flex flex-col">
+                                <span class="font-medium"><span class="font-mono font-bold text-orange-500 mr-3 text-lg">{{idx+1}}</span>{{u.name}}</span>
+                                <span class="text-[10px] text-gray-400 ml-7 mt-0.5"><i class="fas fa-clock mr-1"></i>預計 {{ getQueueEstTime('dryer', idx) }} 使用</span>
+                            </div>
+                            <button v-if="u.id === user.id" @click="leaveQueue('dryer')" class="text-red-500 bg-red-50 px-3 py-1 rounded-full text-xs font-bold">取消</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================= PAGE 2: 留言板 ================= -->
+            <div v-if="currentTab === 'messages'" class="space-y-4 animate-[fade_0.2s_ease-out]">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <div class="flex gap-2 mb-2">
+                        <button @click="msgTag = '一般'" class="px-3 py-1 text-xs rounded-full border transition" :class="msgTag==='一般'?'bg-gray-800 text-white':'bg-gray-100 text-gray-500'">一般留言</button>
+                        <button @click="msgTag = '故障'" class="px-3 py-1 text-xs rounded-full border transition" :class="msgTag==='故障'?'bg-red-500 text-white':'bg-red-50 text-red-500'">🚨 故障回報</button>
+                    </div>
+                    <textarea v-model="newMsgText" class="w-full bg-gray-50 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 resize-none" rows="3" placeholder="請輸入訊息..."></textarea>
+                    <div class="mt-2 text-right">
+                        <button @click="postMessage" :disabled="!newMsgText.trim()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-bold shadow disabled:opacity-50">送出</button>
+                    </div>
+                </div>
+
+                <div v-if="messages.list.length === 0" class="text-center py-10 text-gray-300">
+                    <i class="fas fa-comments text-4xl mb-2"></i>
+                    <p>目前沒有留言</p>
+                </div>
+
+                <div v-for="msg in sortedMessages" :key="msg.id" class="flex flex-col gap-1">
+                    <div class="flex gap-3">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold shadow-sm shrink-0">
+                            {{ msg.authorName.charAt(0) }}
+                        </div>
+                        <div class="flex-1">
+                            <div class="bg-white p-3 rounded-2xl rounded-tl-none shadow-sm border border-gray-100 msg-bubble group">
+                                <div class="flex justify-between items-start mb-1">
+                                    <span class="font-bold text-gray-800 text-sm">{{ msg.authorName }}</span>
+                                    <div v-if="msg.authorId === user.id" class="flex items-center gap-3">
+                                        <button @click="startEditMsg(msg)" class="text-gray-300 hover:text-blue-500 w-8 h-8 flex items-center justify-center bg-gray-50 rounded-full" title="編輯"><i class="fas fa-pen text-xs"></i></button>
+                                        <button @click="promptDeleteMsg(msg.id)" class="text-gray-300 hover:text-red-500 w-8 h-8 flex items-center justify-center bg-gray-50 rounded-full" title="刪除"><i class="fas fa-trash text-xs"></i></button>
+                                    </div>
+                                    <span v-else-if="msg.tag === '故障'" class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold">故障</span>
+                                </div>
+                                <div v-if="editingMsgId === msg.id">
+                                    <textarea v-model="editMsgText" class="w-full border rounded p-2 text-sm mb-2" rows="2"></textarea>
+                                    <div class="flex justify-end gap-2">
+                                        <button @click="editingMsgId = null" class="text-xs text-gray-400">取消</button>
+                                        <button @click="confirmEditMsg(msg.id)" class="text-xs bg-blue-500 text-white px-3 py-1 rounded">儲存</button>
+                                    </div>
+                                </div>
+                                <p v-else class="text-gray-700 text-sm whitespace-pre-wrap leading-relaxed">{{ msg.text }}</p>
+                            </div>
+                            <div class="flex items-center gap-3 mt-1 ml-1">
+                                <span class="text-[10px] text-gray-400">{{ formatTime(msg.timestamp) }}</span>
+                                <button @click="toggleReply(msg.id)" class="text-xs font-bold text-gray-500 hover:text-blue-600">回覆</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-if="msg.replies && msg.replies.length > 0" class="pl-12 pr-2 space-y-2 mt-1">
+                        <div v-for="(reply, rIdx) in msg.replies" :key="rIdx" class="bg-gray-100 p-2.5 rounded-lg text-sm relative group">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="font-bold text-gray-600 text-xs">{{ reply.authorName }}</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[10px] text-gray-400">{{ formatTime(reply.timestamp) }}</span>
+                                    <div v-if="reply.authorId === user.id" class="flex gap-2">
+                                        <button @click="startEditReply(msg.id, rIdx, reply)" class="text-gray-400 hover:text-blue-500"><i class="fas fa-pen text-[10px]"></i></button>
+                                        <button @click="promptDeleteReply(msg.id, rIdx)" class="text-gray-400 hover:text-red-500"><i class="fas fa-trash text-[10px]"></i></button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-if="editingReplyId === `${msg.id}_${rIdx}`">
+                                <input v-model="editReplyText" class="w-full border rounded p-1 text-sm mb-1">
+                                <div class="flex justify-end gap-2">
+                                    <button @click="editingReplyId = null" class="text-[10px] text-gray-400">取消</button>
+                                    <button @click="confirmEditReply(msg.id, rIdx)" class="text-[10px] bg-blue-500 text-white px-2 py-0.5 rounded">儲存</button>
+                                </div>
+                            </div>
+                            <p v-else class="text-gray-700">{{ reply.text }}</p>
+                        </div>
+                    </div>
+                    <div v-if="replyingTo === msg.id" class="pl-12 pr-2 mt-2 flex gap-2 animate-[fade_0.2s_ease-out]">
+                        <input v-model="replyText" type="text" class="flex-1 bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm focus:outline-none" placeholder="回覆此留言...">
+                        <button @click="postReply(msg.id)" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap">傳送</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 底部導覽列 -->
+        <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center pb-safe z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <button @click="currentTab = 'status'" class="flex-1 py-3 flex flex-col items-center gap-1 transition-colors" :class="currentTab === 'status' ? 'text-blue-600' : 'text-gray-400'">
+                <i class="fas fa-server text-lg"></i>
+                <span class="text-[10px] font-bold">機器狀態</span>
+            </button>
+            <div class="w-px h-8 bg-gray-100"></div>
+            <button @click="currentTab = 'messages'" class="flex-1 py-3 flex flex-col items-center gap-1 transition-colors relative" :class="currentTab === 'messages' ? 'text-blue-600' : 'text-gray-400'">
+                <i class="fas fa-comments text-lg"></i>
+                <span class="text-[10px] font-bold">留言回報</span>
+            </button>
+        </nav>
+
+        <!-- 彈窗們 -->
+        <!-- 1. 公告編輯 -->
+        <div v-if="showAnnouncementModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                <h3 class="text-xl font-bold text-center mb-4 text-gray-800"><i class="fas fa-edit mr-2"></i>編輯公告</h3>
+                <input v-model="tempAnnouncementText" class="w-full border-2 border-gray-200 rounded-xl p-3 text-sm mb-4 focus:border-blue-500 outline-none" placeholder="輸入公告內容...">
+                <div class="flex gap-3">
+                    <button @click="showAnnouncementModal = false" class="flex-1 py-3 rounded-xl bg-gray-100 font-bold text-gray-500 active:bg-gray-200">取消</button>
+                    <button @click="saveAnnouncement" class="flex-1 py-3 rounded-xl bg-blue-600 font-bold text-white shadow-lg active:bg-blue-700">更新</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 啟動機器 (確認時間) -->
+        <div v-if="showStartModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                <h3 class="text-xl font-bold text-center mb-2">{{ tempMachine?.label }}</h3>
+                <p class="text-center text-gray-500 text-sm mb-6">設定運轉時間</p>
+                <div class="flex items-center justify-center gap-6 mb-8">
+                    <button @click="tempTime = Math.max(5, tempTime-5)" class="w-12 h-12 rounded-full bg-gray-100 text-xl font-bold active:bg-gray-200">-</button>
+                    <div class="text-center w-20">
+                        <div class="text-4xl font-bold text-blue-600">{{ tempTime }}</div>
+                        <div class="text-xs text-gray-400">分鐘</div>
+                    </div>
+                    <button @click="tempTime += 5" class="w-12 h-12 rounded-full bg-gray-100 text-xl font-bold active:bg-gray-200">+</button>
+                </div>
+                <div class="flex gap-3">
+                    <button @click="showStartModal = false" class="flex-1 py-3 rounded-xl bg-gray-100 font-bold text-gray-500 active:bg-gray-200">取消</button>
+                    <button @click="confirmStart" class="flex-1 py-3 rounded-xl bg-blue-600 font-bold text-white shadow-lg active:bg-blue-700">開始運轉</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 叫號確認視窗 -->
+        <div v-if="showTurnModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl border-4 border-purple-200">
+                <div class="text-center mb-4">
+                    <div class="w-16 h-16 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 animate-bounce">
+                        <i class="fas fa-bell"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-800 mb-1">輪到您了！</h3>
+                    <p class="text-purple-600 font-bold">{{ tempMachine?.label }} 現在有空</p>
+                </div>
+                
+                <div class="bg-purple-50 rounded-xl p-4 mb-6 text-center">
+                    <p class="text-xs text-gray-500 mb-1">請確認使用 (逾時將跳過)</p>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                        <div class="bg-purple-600 h-2.5 rounded-full countdown-bar" style="animation-duration: 60s;"></div>
+                    </div>
+                </div>
+
+                <div class="flex gap-3">
+                    <button @click="skipTurn" class="flex-1 py-3 rounded-xl bg-gray-100 font-bold text-gray-500 active:bg-gray-200">放棄</button>
+                    <button @click="confirmTurn" class="flex-1 py-3 rounded-xl bg-purple-600 font-bold text-white shadow-lg active:bg-purple-700">確認使用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. 完工通知視窗 -->
+        <div v-if="showFinishedModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                <div class="text-center mb-4">
+                    <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-800 mb-1">衣服洗好了！</h3>
+                    <p class="text-gray-500 text-sm">請盡快前往取出衣物，讓給下一位。</p>
+                </div>
+                <button @click="showFinishedModal = false" class="w-full py-3 rounded-xl bg-blue-600 font-bold text-white shadow-lg">收到</button>
+            </div>
+        </div>
+
+        <!-- 5. 選擇空機 (排隊攔截) -->
+        <div v-if="showSelectModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-[fade_0.2s_ease-out]">
+                <div class="text-center mb-6">
+                    <div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
+                        <i class="fas fa-check"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-800 mb-2">無需排隊！</h3>
+                    <p class="text-gray-500 text-sm">有空機（或已完成）可直接使用。</p>
+                </div>
+                <div class="space-y-3">
+                    <button v-for="m in availableMachines" :key="m.id" @click="selectAndStart(m)" class="w-full p-4 rounded-xl border-2 border-blue-100 bg-blue-50 text-blue-700 font-bold shadow-sm active:scale-95 transition flex items-center justify-between">
+                        <span v-if="m.status === 'finished'">使用 {{ m.label }} (需取出衣物)</span>
+                        <span v-else>使用 {{ m.label }}</span>
+                        <i class="fas fa-chevron-right text-blue-400"></i>
+                    </button>
+                </div>
+                <button @click="showSelectModal = false" class="w-full mt-4 py-3 text-gray-400 text-sm font-bold">取消</button>
+            </div>
+        </div>
+
+        <!-- 6. 確認排隊 (預估時間) -->
+        <div v-if="showQueueConfirmModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-[fade_0.2s_ease-out]">
+                <div class="text-center mb-4">
+                    <div class="w-14 h-14 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-4">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-800 mb-1">確認排隊</h3>
+                    <p class="text-sm text-gray-500">{{ queueType === 'washer' ? '洗衣機' : '烘衣機' }}目前全滿</p>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-4 mb-6 space-y-3 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">前方人數</span>
+                        <span class="font-bold text-gray-800">{{ queueCount }} 人</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">預計等待</span>
+                        <span class="font-bold text-blue-600">約 {{ queueWaitTime }} 分鐘</span>
+                    </div>
+                    <div class="flex justify-between items-center pt-3 border-t border-gray-200">
+                        <span class="text-gray-500">預計輪到您</span>
+                        <span class="font-mono font-black text-xl text-blue-600 bg-blue-50 px-2 rounded">{{ queueExpectedTimeStr }}</span>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button @click="showQueueConfirmModal = false" class="flex-1 py-3 rounded-xl bg-gray-100 font-bold text-gray-500 active:bg-gray-200">取消</button>
+                    <button @click="confirmJoinQueue" class="flex-1 py-3 rounded-xl bg-blue-600 font-bold text-white shadow-lg active:bg-blue-700">加入隊伍</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 7. 取物/清空確認 -->
+        <div v-if="showPickupModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl border-t-4 border-yellow-400">
+                <h3 class="text-xl font-bold text-center mb-4 text-gray-800">
+                    <i class="fas fa-exclamation-triangle text-yellow-500 mr-2"></i>記得取出衣物
+                </h3>
+                <div class="bg-yellow-50 p-3 rounded-lg text-sm text-yellow-800 mb-6">
+                    <p class="mb-1">上一位使用者：<span class="font-bold">{{ tempMachine?.ownerName }}</span></p>
+                    <p>請檢查機器內是否有殘留衣物？</p>
+                </div>
+                <div class="space-y-3">
+                    <button @click="handleCleanup(true)" class="w-full py-3 rounded-xl bg-red-100 text-red-700 font-bold border border-red-200 shadow-sm active:bg-red-200">
+                        有殘留衣物 (移至待取區)
+                    </button>
+                    <button @click="handleCleanup(false)" class="w-full py-3 rounded-xl bg-green-500 text-white font-bold shadow-lg active:bg-green-600">
+                        已清空，開始使用
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 8. 取回確認 -->
+        <div v-if="showPickupConfirmModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                <h3 class="font-bold text-lg mb-4 text-center text-gray-800">🧺 確認取回衣物？</h3>
+                <p class="text-sm text-gray-600 text-center mb-6">
+                    您確定要取回 <span class="font-bold text-blue-600">{{ pickupTargetItem?.ownerName }}</span> 的衣物嗎？
+                    <br><span class="text-xs text-gray-400">(確認後此筆紀錄將消失)</span>
+                </p>
+                <div class="flex gap-3">
+                    <button @click="showPickupConfirmModal = false" class="flex-1 py-3 rounded-xl bg-gray-100 font-bold text-gray-500 active:bg-gray-200">取消</button>
+                    <button @click="confirmPickup" class="flex-1 py-3 rounded-xl bg-red-500 font-bold text-white shadow-lg active:bg-red-600">確認取回</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 9. 強制修改機器狀態 Modal -->
+        <div v-if="showFixModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                <h3 class="font-bold text-center mb-4 text-gray-800">
+                    <i class="fas fa-cog mr-2 text-gray-500"></i>設定 {{ tempMachine?.label }}
+                </h3>
+                <div class="space-y-3">
+                    <button @click="applyFix(tempMachine.id, 'available')" class="w-full py-3 rounded-xl bg-green-100 text-green-700 font-bold border border-green-200 shadow-sm active:bg-green-200">
+                        🟢 設為：空閒 (Available)
+                    </button>
+                    <button @click="applyFix(tempMachine.id, 'finished')" class="w-full py-3 rounded-xl bg-yellow-100 text-yellow-700 font-bold border border-yellow-200 shadow-sm active:bg-yellow-200">
+                        🟡 設為：已洗完 (Finished)
+                    </button>
+                    <button @click="applyFix(tempMachine.id, 'maintenance')" class="w-full py-3 rounded-xl bg-gray-200 text-gray-700 font-bold border border-gray-300 shadow-sm active:bg-gray-300">
+                        ⚫ 設為：維護/故障
+                    </button>
+                    <button @click="showFixModal = false" class="w-full py-3 text-gray-400 text-sm font-bold mt-2">取消</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ID 設定 (改良版) -->
+        <div v-if="showIdModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                <h3 class="font-bold text-lg mb-4 text-center">👋 請輸入您的稱呼</h3>
+                <p class="text-xs text-gray-500 text-center mb-4">請使用固定名稱以便找回您的紀錄</p>
+                <input v-model="tempName" class="w-full border-2 border-gray-200 rounded-xl p-3 text-lg mb-4 text-center focus:border-blue-500 outline-none" placeholder="例如: 901 小王">
+                <button @click="saveUser" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg active:bg-blue-700">儲存並進入</button>
+             </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { createApp, ref, computed, onMounted, watch } from 'vue';
+        import { initializeApp } from 'firebase/app';
+        import { getFirestore, doc, onSnapshot, setDoc, collection } from 'firebase/firestore';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDna-RT6ELNK8b7EUDi5WmYJlNespEGiqU",
+            authDomain: "wash-3dd96.firebaseapp.com",
+            projectId: "wash-3dd96",
+            storageBucket: "wash-3dd96.firebasestorage.app",
+            messagingSenderId: "353224544500",
+            appId: "1:353224544500:web:41d163403c04ed1f5e8ea1"
+        };
+
+        const app = createApp({
+            setup() {
+                const loading = ref(true);
+                const currentTab = ref('status');
+                const user = ref({ id: localStorage.getItem('uid') || 'u_'+Date.now(), name: localStorage.getItem('uname') || '' });
+                const currentTime = ref('');
+                
+                const machines = ref({});
+                const queues = ref({ washer: {users:[]}, dryer: {users:[]} });
+                const messages = ref({ list: [] });
+                const announcement = ref({ text: '', updatedBy: '', updatedAt: 0 });
+                const uncollected = ref({ items: [] });
+
+                const newMsgText = ref('');
+                const msgTag = ref('一般');
+                const replyingTo = ref(null);
+                const replyText = ref('');
+                const editingMsgId = ref(null);
+                const editMsgText = ref('');
+                const editingReplyId = ref(null);
+                const editReplyText = ref('');
+                const showAnnouncementModal = ref(false);
+                const tempAnnouncementText = ref('');
+
+                const showStartModal = ref(false);
+                const showIdModal = ref(false);
+                const showFixModal = ref(false);
+                const showDeleteModal = ref(false);
+                const showSelectModal = ref(false);
+                const showQueueConfirmModal = ref(false);
+                const showTurnModal = ref(false);
+                const showFinishedModal = ref(false);
+                const showPickupModal = ref(false);
+                const showPickupConfirmModal = ref(false);
+                
+                const manualMode = ref(false);
+                const deleteTarget = ref(null);
+                const pickupTargetItem = ref(null);
+                const tempMachine = ref(null);
+                const tempTime = ref(30);
+                const tempName = ref('');
+                const now = ref(Date.now());
+                const availableMachines = ref([]);
+                const queueType = ref('');
+                const queueCount = ref(0);
+                const queueWaitTime = ref(0);
+                const queueExpectedTimeStr = ref('');
+
+                const app = initializeApp(firebaseConfig);
+                const db = getFirestore(app);
+                const APP_ID = 'wash-3dd96-demo';
+                const DATA_VERSION = 'v38'; // v38: Clean Slate with Stable IDs
+                const MSG_VERSION = 'v22'; 
+                const ANN_VERSION = 'v25';
+
+                onMounted(() => {
+                    // Check local storage for name/id
+                    const savedName = localStorage.getItem('uname');
+                    const savedUid = localStorage.getItem('uid');
+                    
+                    if(savedName && savedUid) {
+                        user.value = { id: savedUid, name: savedName };
+                    } else {
+                        showIdModal.value = true;
+                    }
+                    
+                    onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', `machines_${DATA_VERSION}`, 'all_data'), (snap) => {
+                        if(snap.exists()) { machines.value = snap.data(); loading.value = false; }
+                        else { initData(); }
+                    });
+                    onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', `queues_${DATA_VERSION}`, 'all_data'), (snap) => {
+                        if(snap.exists()) queues.value = snap.data();
+                    });
+                    onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', `messages_${MSG_VERSION}`, 'all_data'), (snap) => {
+                        if(snap.exists()) messages.value = snap.data();
+                    });
+                    onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', `announcement_${ANN_VERSION}`, 'main'), (snap) => {
+                        if(snap.exists()) announcement.value = snap.data();
+                    });
+                    onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', `uncollected_${DATA_VERSION}`, 'all_data'), (snap) => {
+                        if(snap.exists()) uncollected.value = snap.data();
+                        else setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `uncollected_${DATA_VERSION}`, 'all_data'), { items: [] });
+                    });
+
+                    setInterval(() => { 
+                        now.value = Date.now(); 
+                        currentTime.value = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+                        checkLogic(); 
+                    }, 1000);
+                });
+
+                const initData = async () => {
+                    const defMachines = {
+                        'W1': { id: 'W1', type: 'washer', label: '洗衣機 (左)', status: 'available', endTime: 0, ownerName: '', ownerId: '', reservedFor: null, reservedUntil: 0 },
+                        'W2': { id: 'W2', type: 'washer', label: '洗衣機 (右)', status: 'available', endTime: 0, ownerName: '', ownerId: '', reservedFor: null, reservedUntil: 0 },
+                        'D1': { id: 'D1', type: 'dryer', label: '烘衣機', status: 'available', endTime: 0, ownerName: '', ownerId: '', reservedFor: null, reservedUntil: 0 }
+                    };
+                    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `machines_${DATA_VERSION}`, 'all_data'), defMachines);
+                    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `queues_${DATA_VERSION}`, 'all_data'), { washer:{users:[]}, dryer:{users:[]} });
+                    setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `messages_${MSG_VERSION}`, 'all_data'), { list: [] });
+                    setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `announcement_${ANN_VERSION}`, 'main'), { text: '歡迎使用九樓洗衣房！', updatedBy: '系統', updatedAt: Date.now() });
+                };
+
+                const sync = () => {
+                    setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `machines_${DATA_VERSION}`, 'all_data'), machines.value);
+                    setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `queues_${DATA_VERSION}`, 'all_data'), queues.value);
+                    setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `uncollected_${DATA_VERSION}`, 'all_data'), uncollected.value);
+                };
+
+                const syncMessages = async () => {
+                    try {
+                        const dataToSave = JSON.parse(JSON.stringify(messages.value));
+                        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `messages_${MSG_VERSION}`, 'all_data'), dataToSave);
+                    } catch (e) { alert("儲存失敗"); }
+                };
+
+                const checkLogic = () => {
+                    let changed = false;
+                    const currentTs = Date.now();
+
+                    Object.values(machines.value).forEach(m => {
+                        if (m.status === 'running' && m.endTime < currentTs) {
+                            m.status = 'finished';
+                            changed = true;
+                        }
+
+                        if (m.status === 'reserved' && m.reservedUntil < currentTs) {
+                            const q = queues.value[m.type];
+                            if (q.users.length > 0 && q.users[0].id === m.reservedFor) { q.users.shift(); }
+                            if (q.users.length > 0) {
+                                const nextUser = q.users[0];
+                                m.reservedFor = nextUser.id; m.reservedForName = nextUser.name; m.reservedUntil = currentTs + 60000;
+                            } else {
+                                m.status = 'available'; m.reservedFor = null;
+                            }
+                            changed = true;
+                        }
+                        
+                        if (m.status === 'reserved' && m.reservedFor === user.value.id && !showTurnModal.value) {
+                            tempMachine.value = m; showTurnModal.value = true;
+                        }
+                    });
+                    
+                    const recentDone = uncollected.value.items.find(i => i.ownerId === user.value.id && (currentTs - i.finishedAt) < 5000);
+                    if (recentDone && !showFinishedModal.value) { showFinishedModal.value = true; }
+
+                    if (changed) sync();
+                };
+
+                const handleClick = (m) => {
+                    tempMachine.value = m;
+                    
+                    if(m.status === 'maintenance') {
+                        alert('此機器目前維護/故障中，暫停使用。');
+                        return;
+                    }
+
+                    if(m.status === 'reserved') {
+                        if(m.reservedFor === user.value.id) { showTurnModal.value = true; } 
+                        else { alert(`保留給 ${m.reservedForName}，請稍候。`); }
+                        return;
+                    }
+
+                    if(m.status === 'available') {
+                        if(!user.value.name) { showIdModal.value = true; return; }
+                        if(isUserUsingType(m.type)) return alert(`您已在使用一台${m.type === 'washer' ? '洗衣機' : '烘衣機'}了。`);
+                        tempTime.value = m.type === 'washer' ? 30 : 45;
+                        showStartModal.value = true;
+                    }
+
+                    if(m.status === 'finished') {
+                        if(!user.value.name) { showIdModal.value = true; return; }
+                        if(isUserUsingType(m.type)) return alert(`您已在使用一台${m.type === 'washer' ? '洗衣機' : '烘衣機'}了。`);
+                        showPickupModal.value = true; 
+                    }
+                };
+
+                const openFixModal = (m) => {
+                    tempMachine.value = m;
+                    showFixModal.value = true;
+                };
+
+                const handleCleanup = (hasLeftovers) => {
+                    if (hasLeftovers) {
+                        uncollected.value.items.unshift({
+                            id: 'item_' + Date.now() + '_' + tempMachine.value.id,
+                            machineLabel: tempMachine.value.label,
+                            ownerId: tempMachine.value.ownerId || 'unknown',
+                            ownerName: tempMachine.value.ownerName || '未知',
+                            finishedAt: Date.now()
+                        });
+                    }
+                    showPickupModal.value = false;
+                    tempTime.value = tempMachine.value.type === 'washer' ? 30 : 45;
+                    showStartModal.value = true;
+                };
+
+                const handleQueueClick = (type) => {
+                    if(!user.value.name) { showIdModal.value = true; return; }
+                    if (isUserUsingType(type)) return alert("使用中無法排隊。");
+                    
+                    const freeMachines = Object.values(machines.value).filter(m => m.type === type && (m.status === 'available' || m.status === 'finished'));
+                    if (freeMachines.length > 0) {
+                        availableMachines.value = freeMachines.sort((a,b) => a.id.localeCompare(b.id));
+                        showSelectModal.value = true;
+                    } else {
+                        queueType.value = type;
+                        queueCount.value = queues.value[type].users.length;
+                        const runningMachines = Object.values(machines.value).filter(m => m.type === type && m.status === 'running');
+                        let minRemaining = 0;
+                        if(runningMachines.length > 0) {
+                            const endTimes = runningMachines.map(m => m.endTime - Date.now());
+                            minRemaining = Math.max(0, Math.min(...endTimes));
+                        }
+                        
+                        queueWaitTime.value = Math.ceil((minRemaining / 60000) + (queueCount.value * 30));
+                        const expectedTimestamp = Date.now() + (queueWaitTime.value * 60000);
+                        queueExpectedTimeStr.value = getFinishTime(expectedTimestamp);
+                        
+                        showQueueConfirmModal.value = true;
+                    }
+                };
+
+                const promptPickup = (item) => {
+                    pickupTargetItem.value = item;
+                    showPickupConfirmModal.value = true;
+                };
+
+                const confirmPickup = () => {
+                    if (!pickupTargetItem.value) return;
+                    uncollected.value.items = uncollected.value.items.filter(i => i.id !== pickupTargetItem.value.id);
+                    sync();
+                    showPickupConfirmModal.value = false;
+                    pickupTargetItem.value = null;
+                };
+
+                const pickupClothes = (id) => { const item = uncollected.value.items.find(i => i.id === id); if(item) promptPickup(item); };
+                const helpPickup = (item) => { promptPickup(item); };
+
+                const selectAndStart = (m) => { showSelectModal.value = false; handleClick(m); };
+                const confirmJoinQueue = () => {
+                    const q = queues.value[queueType.value];
+                    if(!q.users.find(u => u.id === user.value.id)) { q.users.push({ id: user.value.id, name: user.value.name }); sync(); }
+                    showQueueConfirmModal.value = false;
+                };
+                const joinQueue = (type) => { handleQueueClick(type); };
+                const confirmStart = () => {
+                    const m = machines.value[tempMachine.value.id];
+                    m.status = 'running'; m.ownerName = user.value.name; m.ownerId = user.value.id; m.endTime = Date.now() + (tempTime.value * 60000); m.reservedFor = null;
+                    const q = queues.value[m.type];
+                    if (q.users.length > 0 && q.users[0].id === user.value.id) q.users.shift();
+                    showStartModal.value = false; sync();
+                };
+                const skipTurn = () => { const m = machines.value[tempMachine.value.id]; m.reservedUntil = 0; sync(); showTurnModal.value = false; };
+                const confirmTurn = () => { tempTime.value = tempMachine.value.type === 'washer' ? 30 : 45; showStartModal.value = true; showTurnModal.value = false; };
+                
+                const isUserUsingType = (type) => Object.values(machines.value).some(m => m.type === type && m.status === 'running' && m.ownerId === user.value.id);
+                
+                const applyFix = (id, status) => { 
+                    const m = machines.value[id]; 
+                    if(m) {
+                        m.status = status; 
+                        m.endTime = 0; 
+                        m.ownerId = ''; 
+                        m.reservedFor = null; 
+                        sync();
+                    }
+                };
+                
+                const getStatusColor = (m) => { 
+                    if(m.status === 'available') return 'border-green-400 ring-4 ring-green-50'; 
+                    if(m.status === 'running') return 'border-blue-400 bg-blue-50'; 
+                    if(m.status === 'reserved') return 'border-purple-400 bg-purple-50'; 
+                    if(m.status === 'finished') return 'border-yellow-400 bg-yellow-50'; 
+                    if(m.status === 'maintenance') return 'border-gray-400 bg-gray-100 opacity-75';
+                    return 'border-gray-300'; 
+                };
+                const leaveQueue = (type) => { const q = queues.value[type]; q.users = q.users.filter(u => u.id !== user.value.id); sync(); };
+                
+                const saveAnnouncement = () => { setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `announcement_${ANN_VERSION}`, 'main'), { text: tempAnnouncementText.value, updatedBy: user.value.name, updatedAt: Date.now() }); showAnnouncementModal.value = false; };
+                const openEditAnnouncement = () => { if(!user.value.name) { showIdModal.value = true; return; } tempAnnouncementText.value = announcement.value.text; showAnnouncementModal.value = true; };
+                const postMessage = () => { if(!user.value.name) { showIdModal.value = true; return; } if(!newMsgText.value.trim()) return; messages.value.list.unshift({ id: 'msg_'+Date.now(), authorId: user.value.id, authorName: user.value.name, text: newMsgText.value.trim(), tag: msgTag.value, timestamp: Date.now(), replies: [] }); if(messages.value.list.length > 50) messages.value.list.pop(); syncMessages(); newMsgText.value = ''; };
+                const toggleReply = (msgId) => { replyingTo.value = replyingTo.value === msgId ? null : msgId; replyText.value = ''; };
+                const postReply = (msgId) => { if(!user.value.name) { showIdModal.value = true; return; } const t = messages.value.list.find(m => m.id === msgId); if(t) { t.replies.push({ authorId: user.value.id, authorName: user.value.name, text: replyText.value.trim(), timestamp: Date.now() }); syncMessages(); replyText.value = ''; replyingTo.value = null; } };
+                const promptDeleteMsg = (msgId) => { deleteTarget.value = { type: 'msg', id: msgId }; showDeleteModal.value = true; };
+                const promptDeleteReply = (msgId, replyIdx) => { deleteTarget.value = { type: 'reply', id: msgId, replyIdx }; showDeleteModal.value = true; };
+                const confirmDelete = async () => { if(!deleteTarget.value) return; if(deleteTarget.value.type === 'msg') { const idx = messages.value.list.findIndex(m => m.id === deleteTarget.value.id); if(idx !== -1) { messages.value.list.splice(idx, 1); await syncMessages(); } } else { const msg = messages.value.list.find(m => m.id === deleteTarget.value.id); if(msg && msg.replies) { msg.replies.splice(deleteTarget.value.replyIdx, 1); await syncMessages(); } } showDeleteModal.value = false; deleteTarget.value = null; };
+                const startEditMsg = (msg) => { editingMsgId.value = msg.id; editMsgText.value = msg.text; };
+                const confirmEditMsg = (msgId) => { const t = messages.value.list.find(m => m.id === msgId); if(t) { t.text = editMsgText.value; syncMessages(); } editingMsgId.value = null; };
+                const startEditReply = (msgId, rid, r) => { editingReplyId.value = `${msgId}_${rid}`; editReplyText.value = r.text; };
+                const confirmEditReply = (msgId, rid) => { const t = messages.value.list.find(m => m.id === msgId); if(t) { t.replies[rid].text = editReplyText.value; syncMessages(); } editingReplyId.value = null; };
+                
+                // 關鍵修改: ID = Name
+                const saveUser = () => { 
+                    if(tempName.value) {
+                        const newName = tempName.value.trim();
+                        user.value.name = newName;
+                        // 綁定 ID 為名字，確保下次登入能找回權限
+                        user.value.id = 'u_' + newName; 
+                        localStorage.setItem('uname', newName);
+                        localStorage.setItem('uid', user.value.id);
+                        showIdModal.value = false;
+                    }
+                };
+                
+                const getRemaining = (endTime) => { const diff = endTime - now.value; return diff <= 0 ? '整理中' : Math.ceil(diff/60000)+' 分鐘'; };
+                const getFinishTime = (endTime) => { const d = new Date(endTime); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+                const formatTime = (ts) => { const d = new Date(ts); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+                const sortMachines = (list) => list.sort((a,b) => a.id.localeCompare(b.id));
+                const getQueueEstTime = (type, index) => {
+                    const activeMachines = Object.values(machines.value).filter(m => m.type === type);
+                    let slots = activeMachines.map(m => {
+                        if (m.status === 'running') return m.endTime;
+                        if (m.status === 'reserved') return m.reservedUntil + (30*60000);
+                        return Date.now();
+                    }).sort((a,b) => a - b);
+                    let simSlots = [...slots];
+                    for(let i=0; i<=index; i++) {
+                        simSlots.sort((a,b) => a - b);
+                        let earliest = simSlots[0];
+                        if (earliest < Date.now()) earliest = Date.now();
+                        simSlots[0] = earliest + (type === 'washer' ? 30 : 45) * 60000; 
+                        if (i === index) return getFinishTime(earliest);
+                    }
+                    return '--:--';
+                };
+
+                return {
+                    loading, user, currentTab, currentTime,
+                    washers: computed(()=>sortMachines(Object.values(machines.value).filter(x=>x.type==='washer'))), 
+                    dryers: computed(()=>Object.values(machines.value).filter(x=>x.type==='dryer')), 
+                    queues, messages, sortedMessages: computed(() => messages.value.list), uncollectedItems: computed(() => uncollected.value.items),
+                    announcement, showAnnouncementModal, tempAnnouncementText,
+                    newMsgText, msgTag, replyingTo, replyText, editingMsgId, editMsgText, editingReplyId, editReplyText,
+                    showStartModal, showIdModal, showFixModal, showDeleteModal, showSelectModal, showQueueConfirmModal, showTurnModal, showFinishedModal, showPickupModal, showPickupConfirmModal,
+                    availableMachines, queueType, queueCount, queueWaitTime, queueExpectedTimeStr,
+                    tempMachine, tempTime, tempName, pickupTargetItem,
+                    handleClick, confirmStart, handleQueueClick, leaveQueue, saveUser, applyFix, getStatusColor, getRemaining, formatTime, getFinishTime, getQueueEstTime,
+                    postMessage, toggleReply, postReply, promptDeleteMsg, promptDeleteReply, confirmDelete, startEditMsg, confirmEditMsg, startEditReply, confirmEditReply,
+                    openEditAnnouncement, saveAnnouncement, selectAndStart, confirmJoinQueue, skipTurn, confirmTurn, pickupClothes, handleCleanup, helpPickup, promptPickup, confirmPickup,
+                    openFixModal
+                };
+            }
+        });
+
+        app.mount('#app');
+    </script>
+</body>
+</html>
+
+
