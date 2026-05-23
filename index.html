@@ -50,16 +50,13 @@
 
     <div id="app" class="min-h-screen flex flex-col max-w-md mx-auto bg-gray-50 relative" v-cloak>
         
-        <!-- 載入中 -->
         <div v-if="loading" class="fixed inset-0 bg-gray-100 z-50 flex flex-col items-center justify-center">
             <div class="text-5xl animate-bounce mb-4">🧺</div>
             <p class="text-gray-500 font-bold">連線中...</p>
         </div>
 
-        <!-- 主要內容區 -->
         <main class="flex-1 overflow-y-auto pb-24 p-4 scroll-smooth">
             
-            <!-- 頂部 Header -->
             <header class="bg-white rounded-2xl shadow-sm p-4 mb-4 border border-gray-100 sticky top-0 z-20">
                 <div class="flex justify-between items-center mb-2">
                     <div>
@@ -78,10 +75,8 @@
                 </div>
             </header>
 
-            <!-- ================= PAGE 1: 機器與排隊 ================= -->
             <div v-if="currentTab === 'status'">
                 
-                <!-- 跑馬燈公告 -->
                 <section class="mb-4">
                     <div class="relative bg-gray-800 h-10 rounded-lg flex items-center overflow-hidden shadow-md marquee-container group">
                         <div class="absolute left-0 bg-gray-800 z-10 px-2 h-full flex items-center text-yellow-400">
@@ -99,7 +94,6 @@
                     </div>
                 </section>
 
-                <!-- 待取衣物籃 -->
                 <section class="mb-6">
                     <div class="bg-white border-2 border-red-100 rounded-xl p-4 shadow-sm ring-2 ring-red-50 relative overflow-hidden">
                         <h3 class="font-bold text-red-800 text-sm mb-3 flex items-center justify-between z-10 relative">
@@ -133,7 +127,6 @@
                     </div>
                 </section>
 
-                <!-- 機器列表 -->
                 <section class="mb-6">
                     <div class="mb-2 flex items-center text-gray-500 text-xs font-bold uppercase tracking-wider ml-1">
                         <i class="fas fa-soap mr-1"></i> 洗衣機 (Washer)
@@ -219,7 +212,6 @@
                     </div>
                 </section>
 
-                <!-- 排隊區 -->
                 <div class="grid grid-cols-1 gap-4 mb-6">
                     <div class="bg-white rounded-xl shadow-sm border p-4">
                         <div class="flex justify-between items-center mb-3">
@@ -232,7 +224,6 @@
                                 <span class="font-medium"><span class="font-mono font-bold text-blue-500 mr-3 text-lg">{{idx+1}}</span>{{u.name}}</span>
                                 <span class="text-[10px] text-gray-400 ml-7 mt-0.5"><i class="fas fa-clock mr-1"></i>預計 {{ getQueueEstTime('washer', idx) }} 使用</span>
                             </div>
-                            <!-- ID 驗證: 只要名字一樣，就能取消 -->
                             <button v-if="u.id === user.id" @click="leaveQueue('washer')" class="text-red-500 bg-red-50 px-3 py-1 rounded-full text-xs font-bold">取消</button>
                         </div>
                     </div>
@@ -254,7 +245,6 @@
                 </div>
             </div>
 
-            <!-- ================= PAGE 2: 留言板 ================= -->
             <div v-if="currentTab === 'messages'" class="space-y-4 animate-[fade_0.2s_ease-out]">
                 <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                     <div class="flex gap-2 mb-2">
@@ -332,7 +322,6 @@
             </div>
         </main>
 
-        <!-- 底部導覽列 -->
         <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center pb-safe z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
             <button @click="currentTab = 'status'" class="flex-1 py-3 flex flex-col items-center gap-1 transition-colors" :class="currentTab === 'status' ? 'text-blue-600' : 'text-gray-400'">
                 <i class="fas fa-server text-lg"></i>
@@ -345,8 +334,6 @@
             </button>
         </nav>
 
-        <!-- 彈窗們 -->
-        <!-- 1. 公告編輯 -->
         <div v-if="showAnnouncementModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
                 <h3 class="text-xl font-bold text-center mb-4 text-gray-800"><i class="fas fa-edit mr-2"></i>編輯公告</h3>
@@ -358,7 +345,6 @@
             </div>
         </div>
 
-        <!-- 2. 啟動機器 (確認時間) -->
         <div v-if="showStartModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
                 <h3 class="text-xl font-bold text-center mb-2">{{ tempMachine?.label }}</h3>
@@ -378,7 +364,6 @@
             </div>
         </div>
 
-        <!-- 3. 叫號確認視窗 -->
         <div v-if="showTurnModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl border-4 border-purple-200">
                 <div class="text-center mb-4">
@@ -403,7 +388,6 @@
             </div>
         </div>
 
-        <!-- 4. 完工通知視窗 -->
         <div v-if="showFinishedModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
                 <div class="text-center mb-4">
@@ -417,7 +401,6 @@
             </div>
         </div>
 
-        <!-- 5. 選擇空機 (排隊攔截) -->
         <div v-if="showSelectModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-[fade_0.2s_ease-out]">
                 <div class="text-center mb-6">
@@ -438,7 +421,6 @@
             </div>
         </div>
 
-        <!-- 6. 確認排隊 (預估時間) -->
         <div v-if="showQueueConfirmModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-[fade_0.2s_ease-out]">
                 <div class="text-center mb-4">
@@ -469,7 +451,6 @@
             </div>
         </div>
 
-        <!-- 7. 取物/清空確認 -->
         <div v-if="showPickupModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl border-t-4 border-yellow-400">
                 <h3 class="text-xl font-bold text-center mb-4 text-gray-800">
@@ -490,7 +471,6 @@
             </div>
         </div>
         
-        <!-- 8. 取回確認 -->
         <div v-if="showPickupConfirmModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
                 <h3 class="font-bold text-lg mb-4 text-center text-gray-800">🧺 確認取回衣物？</h3>
@@ -505,7 +485,6 @@
             </div>
         </div>
         
-        <!-- 9. 強制修改機器狀態 Modal -->
         <div v-if="showFixModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
                 <h3 class="font-bold text-center mb-4 text-gray-800">
@@ -526,7 +505,6 @@
             </div>
         </div>
 
-        <!-- ID 設定 (改良版) -->
         <div v-if="showIdModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
              <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
                 <h3 class="font-bold text-lg mb-4 text-center">👋 請輸入您的稱呼</h3>
@@ -603,12 +581,13 @@
                 const app = initializeApp(firebaseConfig);
                 const db = getFirestore(app);
                 const APP_ID = 'wash-3dd96-demo';
-                const DATA_VERSION = 'v38'; // v38: Clean Slate with Stable IDs
-                const MSG_VERSION = 'v22'; 
-                const ANN_VERSION = 'v25';
+                
+                // --- 版本號已更新，會自動重建全新資料庫 ---
+                const DATA_VERSION = 'v39'; 
+                const MSG_VERSION = 'v23'; 
+                const ANN_VERSION = 'v26';
 
                 onMounted(() => {
-                    // Check local storage for name/id
                     const savedName = localStorage.getItem('uname');
                     const savedUid = localStorage.getItem('uid');
                     
@@ -618,10 +597,23 @@
                         showIdModal.value = true;
                     }
                     
+                    // 防呆快顯，5 秒內若 Firebase 無回應自動跳過讀取畫面
+                    setTimeout(() => {
+                        if(loading.value) {
+                            console.warn("Firebase 連線逾時，已強制解除等待畫面。");
+                            loading.value = false;
+                        }
+                    }, 5000);
+                    
+                    // 偵錯與監聽器
                     onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', `machines_${DATA_VERSION}`, 'all_data'), (snap) => {
                         if(snap.exists()) { machines.value = snap.data(); loading.value = false; }
                         else { initData(); }
+                    }, (err) => {
+                        console.error("無法取得機器資料:", err);
+                        alert("資料庫讀取失敗，請確認 Firebase Rules 規則是否已發布。");
                     });
+
                     onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', `queues_${DATA_VERSION}`, 'all_data'), (snap) => {
                         if(snap.exists()) queues.value = snap.data();
                     });
@@ -844,12 +836,10 @@
                 const startEditReply = (msgId, rid, r) => { editingReplyId.value = `${msgId}_${rid}`; editReplyText.value = r.text; };
                 const confirmEditReply = (msgId, rid) => { const t = messages.value.list.find(m => m.id === msgId); if(t) { t.replies[rid].text = editReplyText.value; syncMessages(); } editingReplyId.value = null; };
                 
-                // 關鍵修改: ID = Name
                 const saveUser = () => { 
                     if(tempName.value) {
                         const newName = tempName.value.trim();
                         user.value.name = newName;
-                        // 綁定 ID 為名字，確保下次登入能找回權限
                         user.value.id = 'u_' + newName; 
                         localStorage.setItem('uname', newName);
                         localStorage.setItem('uid', user.value.id);
@@ -901,5 +891,3 @@
     </script>
 </body>
 </html>
-
-
