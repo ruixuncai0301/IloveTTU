@@ -18,5 +18,14 @@
 * **後端 / 資料庫：** (你可自行補充使用的技術)
 
 ## 📜 版權宣告
-Copyright (c) 2026 Rax. 
-本專案為原創概念與實作，保留所有權利。
+This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.
+
+Copyright (c) 2025-2026 Rax
+
+You are free to:
+* Share — copy and redistribute the material in any medium or format
+* Adapt — remix, transform, and build upon the material
+
+Under the following terms:
+* Attribution — You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
+* NonCommercial — You may not use the material for commercial purposes.
